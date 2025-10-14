@@ -18,7 +18,7 @@ DPI = 300  # pixels per inch
 MM_TO_INCH = 1 / 25.4
 BORDER_MM = 10
 
-# GitHub raw content URLs (replace with your actual URLs)
+# GitHub raw content URLs
 GITHUB_IMAGE_URL = "https://raw.githubusercontent.com/kevfromglasgow/oasisposter/main/oasis_image.png"
 GITHUB_LOGO_URL = "https://raw.githubusercontent.com/kevfromglasgow/oasisposter/main/oasis_logo.png"
 GITHUB_TEXTURE_URL = "https://raw.githubusercontent.com/kevfromglasgow/oasisposter/main/oasis_texture.png"
@@ -172,8 +172,10 @@ def create_poster(paper_size, bg_color, line1_text, line1_size, line2_text, line
     
     line1_top_mm = 367 * scale
     line1_top_px = mm_to_pixels(line1_top_mm)
-    line2_top_mm = 399 * scale
-    line2_top_px = mm_to_pixels(line2_top_mm)
+    
+    # Line 2 is 72pt below Line 1
+    line2_offset_px = int((72 * MM_TO_INCH * DPI))
+    line2_top_px = line1_top_px + line2_offset_px
     
     # Draw text centered in WHITE for visibility on blue background
     bbox1 = draw.textbbox((0, 0), line1_text, font=font1)
@@ -242,11 +244,13 @@ with col1:
 with col2:
     st.subheader("Text Content")
     
-    line1_text = st.text_input("Line 1 Text", "Your Text Here")
-    line1_size = st.slider("Line 1 Font Size (pt)", 12, 120, 48)
+    line1_text = st.text_input("Line 1 Text", "oasis")
+    line1_size = st.slider("Line 1 Font Size (pt)", 50, 250, 161)
     
-    line2_text = st.text_input("Line 2 Text", "More Text Here")
-    line2_size = st.slider("Line 2 Font Size (pt)", 12, 120, 36)
+    line2_text = st.text_input("Line 2 Text", "chicago")
+    line2_size = st.slider("Line 2 Font Size (pt)", 20, 100, 43)
+    
+    st.info("Line 2 will appear 72pt below Line 1")
 
 # Generate button
 if st.button("Generate Poster", key="generate"):
