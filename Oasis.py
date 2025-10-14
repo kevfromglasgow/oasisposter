@@ -185,12 +185,12 @@ with col2:
     default_y2 = int(A3_DEFAULT_Y2_MM * scale)
     
     # 3. Use these dynamic defaults in the sliders
-    line1_text = st.text_input("Line 1 Text", "oasis")
+    line1_text = st.text_input("Line 1 Text", "ENTER CITY")
     line1_size = st.slider("Line 1 Font Size (pt)", 50, 250, 162)
     line1_y_mm = st.slider("Line 1 Vertical Position (mm)", 0, page_height_mm, default_y1)
     
     st.markdown("---")
-    line2_text = st.text_input("Line 2 Text", "chicago")
+    line2_text = st.text_input("Line 2 Text", "ENTER VENUE")
     line2_size = st.slider("Line 2 Font Size (pt)", 20, 100, 43)
     line2_y_mm = st.slider("Line 2 Vertical Position (mm)", 0, page_height_mm, default_y2)
     # --- END OF CHANGE ---
