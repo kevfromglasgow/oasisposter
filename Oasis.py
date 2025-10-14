@@ -89,8 +89,7 @@ def draw_text_with_tracking(draw, text, y_pos, font, tracking, poster_width, fil
         draw.text((current_x, y_pos), char, font=font, fill=fill_color)
         current_x += char_widths[i] + tracking_pixels
 
-# --- Core Create Poster Function ---
-# REVERTED: Now accepts two lines of text again
+# --- Core Create Poster Function (Unchanged) ---
 def create_poster(paper_size, bg_color, line1_text, line1_size, line1_y_mm, line2_text, line2_size, line2_y_mm, tracking):
     scale = get_scale_factor(paper_size)
     
@@ -98,7 +97,6 @@ def create_poster(paper_size, bg_color, line1_text, line1_size, line1_y_mm, line
     height_mm = A3_HEIGHT_MM if paper_size == "A3" else A4_HEIGHT_MM
     width_px, height_px = mm_to_pixels(width_mm), mm_to_pixels(height_mm)
     
-    # IMPORTANT FIX: Start with RGBA to handle transparency correctly
     poster = Image.new('RGBA', (width_px, height_px), (*bg_color, 255))
     
     texture = load_image_from_github(GITHUB_TEXTURE_URL)
@@ -126,13 +124,11 @@ def create_poster(paper_size, bg_color, line1_text, line1_size, line1_y_mm, line
     
     try:
         font_data = io.BytesIO(requests.get(GITHUB_FONT_URL).content)
-        # Draw line 1
         font1 = ImageFont.truetype(font_data, int(line1_size * FONT_SCALE_MULTIPLIER))
         line1_top_px = mm_to_pixels(line1_y_mm)
         draw_text_with_tracking(draw, line1_text, line1_top_px, font1, tracking, width_px)
 
-        # Draw line 2
-        font_data.seek(0) # Reset buffer for second font
+        font_data.seek(0)
         font2 = ImageFont.truetype(font_data, int(line2_size * FONT_SCALE_MULTIPLIER))
         line2_top_px = mm_to_pixels(line2_y_mm)
         draw_text_with_tracking(draw, line2_text, line2_top_px, font2, tracking, width_px)
@@ -173,20 +169,31 @@ with col1:
         st.warning("This colour may appear different when printed.", icon="🎨")
 
 with col2:
-    # REVERTED: Back to the simple two-line text input UI
     st.subheader("Text Content")
     page_height_mm = A3_HEIGHT_MM if paper_size == "A3" else A4_HEIGHT_MM
     tracking = st.slider("Letter Spacing (Tracking)", -50, 200, 50)
     st.markdown("---")
     
-    line1_text = st.text_input("Line 1 Text", "chicago")
+    # --- CHANGED: Dynamic Default Positions ---
+    # 1. Define the master defaults for A3
+    A3_DEFAULT_Y1_MM = 330
+    A3_DEFAULT_Y2_MM = 387
+    
+    # 2. Calculate the correct default based on the selected paper size
+    scale = get_scale_factor(paper_size)
+    default_y1 = int(A3_DEFAULT_Y1_MM * scale)
+    default_y2 = int(A3_DEFAULT_Y2_MM * scale)
+    
+    # 3. Use these dynamic defaults in the sliders
+    line1_text = st.text_input("Line 1 Text", "oasis")
     line1_size = st.slider("Line 1 Font Size (pt)", 50, 250, 162)
-    line1_y_mm = st.slider("Line 1 Vertical Position (mm)", 0, page_height_mm, 330)
+    line1_y_mm = st.slider("Line 1 Vertical Position (mm)", 0, page_height_mm, default_y1)
     
     st.markdown("---")
-    line2_text = st.text_input("Line 2 Text", "SOLDIER FIELD | 08.28.2025")
+    line2_text = st.text_input("Line 2 Text", "chicago")
     line2_size = st.slider("Line 2 Font Size (pt)", 20, 100, 43)
-    line2_y_mm = st.slider("Line 2 Vertical Position (mm)", 0, page_height_mm, 387)
+    line2_y_mm = st.slider("Line 2 Vertical Position (mm)", 0, page_height_mm, default_y2)
+    # --- END OF CHANGE ---
 
 # --- Live Preview & Generate Button (Unchanged) ---
 st.divider()
@@ -213,7 +220,6 @@ if st.button("Generate Final Poster", key="generate", type="primary"):
             poster_rgba.save(img_bytes, format='PNG')
             img_bytes.seek(0)
             
-            # Convert to RGB *only* for the PDF
             poster_rgb_for_pdf = poster_rgba.convert("RGB")
             pdf_bytes = io.BytesIO()
             page_size = A3 if paper_size == "A3" else A4
@@ -228,7 +234,7 @@ if st.button("Generate Final Poster", key="generate", type="primary"):
 
             dl_col1, dl_col2 = st.columns(2)
             dl_col1.download_button("Download Poster (PNG)", img_bytes, f"poster_{paper_size}.png", "image/png", use_container_width=True)
-            dl_col2.download_button("Download Poster (PDF)", pdf_bytes, f"poster_{paper_size}.pdf", "application/pdf", use_container_width=True)
+            dl_col2.download_button("Download Poster (PDF)", pdf_bytes, f"poster_{paper_s}.pdf", "application/pdf", use_container_width=True)
 
         except Exception as e:
             st.error(f"Oh no, something went wrong: {e}")
