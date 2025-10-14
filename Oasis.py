@@ -99,7 +99,7 @@ def create_poster(paper_size, bg_color, line1_text, line1_size, line2_text, line
     scale = get_scale_factor(paper_size)
     
     if paper_size == "A3":
-        width_mm, height_mm = A3_WIDTH_MM, A3_HEIGHT_HEIGHT_MM
+        width_mm, height_mm = A3_WIDTH_MM, A3_HEIGHT_MM
     else:
         width_mm, height_mm = A4_WIDTH_MM, A4_HEIGHT_MM
     
