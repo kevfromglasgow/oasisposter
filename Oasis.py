@@ -98,7 +98,8 @@ def apply_blend_darken(base, overlay, opacity, fill):
     result_img = Image.fromarray(result.astype('uint8'), 'RGBA')
     return result_img
 
-def create_poster(paper_size, bg_color, line1_text, line1_size, line2_text, line2_size, font):
+# CHANGED: Updated function signature to accept text positions
+def create_poster(paper_size, bg_color, line1_text, line1_size, line1_y_mm, line2_text, line2_size, line2_y_mm, font):
     """Create the poster image"""
     scale = get_scale_factor(paper_size)
     
@@ -123,11 +124,9 @@ def create_poster(paper_size, bg_color, line1_text, line1_size, line2_text, line
     # Load main image
     main_image = load_image_from_github(GITHUB_IMAGE_URL)
     if main_image:
-        # Convert to RGBA if not already to preserve transparency
         if main_image.mode != 'RGBA':
             main_image = main_image.convert('RGBA')
         
-        # Scale the image based on paper size
         main_width_mm = 297  # Assume original is A3 width
         new_width_mm = main_width_mm * scale
         new_width_px = mm_to_pixels(new_width_mm)
@@ -136,7 +135,6 @@ def create_poster(paper_size, bg_color, line1_text, line1_size, line2_text, line
         
         main_image = main_image.resize((new_width_px, new_height_px), Image.Resampling.LANCZOS)
         
-        # Position at bottom center
         x = (width_px - new_width_px) // 2
         y = height_px - new_height_px
         poster.paste(main_image, (x, y), main_image)
@@ -144,14 +142,12 @@ def create_poster(paper_size, bg_color, line1_text, line1_size, line2_text, line
     # Load and position logo
     logo = load_image_from_github(GITHUB_LOGO_URL)
     if logo:
-        # Convert to RGBA for transparency
         if logo.mode != 'RGBA':
             logo = logo.convert('RGBA')
         
         logo_top_mm = 70.6 * scale
         logo_top_px = mm_to_pixels(logo_top_mm)
         
-        # Logo dimensions at A3: 217.76W x 99.14H
         logo_width_mm = 217.76 * scale
         logo_height_mm = 99.14 * scale
         logo_width_px = mm_to_pixels(logo_width_mm)
@@ -159,7 +155,6 @@ def create_poster(paper_size, bg_color, line1_text, line1_size, line2_text, line
         
         logo = logo.resize((logo_width_px, logo_height_px), Image.Resampling.LANCZOS)
         
-        # Center horizontally, position from top
         logo_x = (width_px - logo_width_px) // 2
         logo_y = logo_top_px - (logo_height_px // 2)
         poster.paste(logo, (logo_x, logo_y), logo)
@@ -173,38 +168,26 @@ def create_poster(paper_size, bg_color, line1_text, line1_size, line2_text, line
     except:
         font1 = ImageFont.load_default()
         font2 = ImageFont.load_default()
-    
-    line1_top_mm = 367 * scale
-    line1_top_px = mm_to_pixels(line1_top_mm)
-    
-    # Line 2 bottom should be 403.4mm from bottom of paper at A3
-    if paper_size == "A3":
-        line2_bottom_mm = A3_HEIGHT_MM - 403.4
-    else:
-        line2_bottom_mm = A4_HEIGHT_MM - (403.4 * scale)
-    
-    line2_bottom_px = mm_to_pixels(line2_bottom_mm)
-    
-    # Draw text centered in WHITE for visibility on blue background
+
+    # CHANGED: Use user-provided y-positions instead of hard-coded values
+    line1_top_px = mm_to_pixels(line1_y_mm)
+    line2_top_px = mm_to_pixels(line2_y_mm)
+
+    # Draw text centered (horizontal centering logic is unchanged)
     bbox1 = draw.textbbox((0, 0), line1_text, font=font1)
     line1_width = bbox1[2] - bbox1[0]
-    line1_height = bbox1[3] - bbox1[1]
     line1_x = (width_px - line1_width) // 2
     draw.text((line1_x, line1_top_px), line1_text, fill=(255, 255, 255), font=font1)
     
     bbox2 = draw.textbbox((0, 0), line2_text, font=font2)
     line2_width = bbox2[2] - bbox2[0]
-    line2_height = bbox2[3] - bbox2[1]
     line2_x = (width_px - line2_width) // 2
-    # Position line 2 so its bottom is at line2_bottom_px
-    line2_top_px = line2_bottom_px - line2_height
     draw.text((line2_x, line2_top_px), line2_text, fill=(255, 255, 255), font=font2)
     
     # Add 10mm black border - from edge to edge
     border_mm = 10
     border_px = mm_to_pixels(border_mm)
     
-    # Draw rectangle from outer edge (0,0) to inner edge (border_px, border_px) on each side
     draw.rectangle(
         [(0, 0), (width_px, height_px)],
         outline=(0, 0, 0),
@@ -255,26 +238,41 @@ with col1:
 
 with col2:
     st.subheader("Text Content")
-    
+
+    # ADDED: Determine max height for sliders based on paper size
+    if paper_size == "A3":
+        page_height_mm = A3_HEIGHT_MM
+    else:
+        page_height_mm = A4_HEIGHT_MM
+
     line1_text = st.text_input("Line 1 Text", "oasis")
     line1_size = st.slider("Line 1 Font Size (pt)", 50, 250, 161)
+    # ADDED: Interactive slider for Line 1 vertical position
+    line1_y_mm = st.slider("Line 1 Vertical Position (mm from top)", 0, page_height_mm, 367)
     
+    st.markdown("---") # Visual separator
+
     line2_text = st.text_input("Line 2 Text", "chicago")
     line2_size = st.slider("Line 2 Font Size (pt)", 20, 100, 43)
+    # ADDED: Interactive slider for Line 2 vertical position
+    line2_y_mm = st.slider("Line 2 Vertical Position (mm from top)", 0, page_height_mm, 388)
     
-    st.info("Line 2 will appear 72pt below Line 1")
+    # REMOVED old st.info message
 
 # Generate button
 if st.button("Generate Poster", key="generate"):
     with st.spinner("Creating your poster..."):
         try:
+            # CHANGED: Pass the new y-position values to the function
             poster = create_poster(
                 paper_size,
                 bg_color,
                 line1_text,
                 line1_size,
+                line1_y_mm, # ADDED
                 line2_text,
                 line2_size,
+                line2_y_mm, # ADDED
                 None
             )
             
