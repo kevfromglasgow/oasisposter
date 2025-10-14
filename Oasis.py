@@ -29,7 +29,7 @@ GITHUB_LOGO_URL = "https://raw.githubusercontent.com/kevfromglasgow/oasisposter/
 GITHUB_TEXTURE_URL = "https://raw.githubusercontent.com/kevfromglasgow/oasisposter/main/oasis_texture.png"
 GITHUB_FONT_URL = "https://raw.githubusercontent.com/kevfromglasgow/oasisposter/main/oasis_font.otf"
 
-# --- All helper functions (mm_to_pixels, cmyk_to_rgb, etc.) remain the same ---
+# --- Helper Functions (Unchanged) ---
 def mm_to_pixels(mm, dpi=DPI):
     return int(mm * MM_TO_INCH * dpi)
 
@@ -76,7 +76,6 @@ def apply_blend_darken(base, overlay, opacity, fill):
     darken = np.minimum(base_array[:, :, :3], overlay_array[:, :, :3])
     fill_factor = fill / 100.0
     result_rgb = base_array[:, :, :3] * (1 - fill_factor) + darken * fill_factor
-    # Combine with the original base alpha channel
     result_a = base_array[:, :, 3:]
     result = np.concatenate([result_rgb, result_a], axis=2)
     return Image.fromarray(result.astype('uint8'), 'RGBA')
@@ -91,23 +90,21 @@ def draw_text_with_tracking(draw, text, y_pos, font, tracking, poster_width, fil
         current_x += char_widths[i] + tracking_pixels
 
 # --- Core Create Poster Function ---
-# CHANGED: Now accepts 4 lines of text
-def create_poster(paper_size, bg_color, tracking, text_lines_data):
-    """Create the poster image"""
+# REVERTED: Now accepts two lines of text again
+def create_poster(paper_size, bg_color, line1_text, line1_size, line1_y_mm, line2_text, line2_size, line2_y_mm, tracking):
     scale = get_scale_factor(paper_size)
     
     width_mm = A3_WIDTH_MM if paper_size == "A3" else A4_WIDTH_MM
     height_mm = A3_HEIGHT_MM if paper_size == "A3" else A4_HEIGHT_MM
     width_px, height_px = mm_to_pixels(width_mm), mm_to_pixels(height_mm)
     
-    # CHANGED: Start with an RGBA canvas to preserve transparency throughout
+    # IMPORTANT FIX: Start with RGBA to handle transparency correctly
     poster = Image.new('RGBA', (width_px, height_px), (*bg_color, 255))
     
     texture = load_image_from_github(GITHUB_TEXTURE_URL)
     if texture:
         texture = texture.resize((width_px, height_px), Image.Resampling.LANCZOS)
         poster = apply_blend_darken(poster, texture, opacity=100, fill=95)
-        # REMOVED: poster = poster.convert('RGB') -> This was the cause of the white overlay!
 
     main_image = load_image_from_github(GITHUB_IMAGE_URL)
     if main_image:
@@ -129,26 +126,26 @@ def create_poster(paper_size, bg_color, tracking, text_lines_data):
     
     try:
         font_data = io.BytesIO(requests.get(GITHUB_FONT_URL).content)
-        # ADDED: Loop through all text lines to draw them
-        for line in text_lines_data:
-            if line['text']: # Only draw if there is text
-                font_data.seek(0)
-                font = ImageFont.truetype(font_data, int(line['size'] * FONT_SCALE_MULTIPLIER))
-                top_px = mm_to_pixels(line['y_mm'])
-                draw_text_with_tracking(draw, line['text'], top_px, font, tracking, width_px)
+        # Draw line 1
+        font1 = ImageFont.truetype(font_data, int(line1_size * FONT_SCALE_MULTIPLIER))
+        line1_top_px = mm_to_pixels(line1_y_mm)
+        draw_text_with_tracking(draw, line1_text, line1_top_px, font1, tracking, width_px)
+
+        # Draw line 2
+        font_data.seek(0) # Reset buffer for second font
+        font2 = ImageFont.truetype(font_data, int(line2_size * FONT_SCALE_MULTIPLIER))
+        line2_top_px = mm_to_pixels(line2_y_mm)
+        draw_text_with_tracking(draw, line2_text, line2_top_px, font2, tracking, width_px)
     except Exception as e:
         st.error(f"Could not load or draw font: {e}")
 
     border_px = mm_to_pixels(BORDER_MM)
     draw.rectangle([(0, 0), (width_px, height_px)], outline=(0, 0, 0), width=border_px)
     
-    # Return the final poster, still in RGBA mode
     return poster
-
 
 # --- Streamlit UI ---
 st.title("🎨 Poster Generator")
-
 col1, col2 = st.columns(2)
 
 with col1:
@@ -157,7 +154,7 @@ with col1:
     st.subheader("Background Color")
     color_mode = st.radio("Color Input Method", ["Color Wheel", "RGB", "CMYK"])
     
-    bg_color = (255,255,255) # Default
+    bg_color = (255,255,255)
     if color_mode == "Color Wheel":
         h, s, v = st.slider("H",0.0,1.0,0.0), st.slider("S",0.0,1.0,1.0), st.slider("V",0.0,1.0,1.0)
         bg_color = tuple(int(c * 255) for c in colorsys.hsv_to_rgb(h, s, v))
@@ -176,38 +173,22 @@ with col1:
         st.warning("This colour may appear different when printed.", icon="🎨")
 
 with col2:
+    # REVERTED: Back to the simple two-line text input UI
     st.subheader("Text Content")
     page_height_mm = A3_HEIGHT_MM if paper_size == "A3" else A4_HEIGHT_MM
     tracking = st.slider("Letter Spacing (Tracking)", -50, 200, 50)
+    st.markdown("---")
     
-    # ADDED: UI for 4 text lines based on your PDF
-    text_lines_data = []
-    with st.expander("Line 1: Top Line", expanded=True):
-        text1 = st.text_input("Text", "COMPANY")
-        size1 = st.slider("Font Size (pt)", 10, 250, 43, key="size1")
-        y_mm1 = st.slider("Vertical Position (mm)", 0, page_height_mm, 280, key="y1")
-        text_lines_data.append({"text": text1, "size": size1, "y_mm": y_mm1})
+    line1_text = st.text_input("Line 1 Text", "chicago")
+    line1_size = st.slider("Line 1 Font Size (pt)", 50, 250, 162)
+    line1_y_mm = st.slider("Line 1 Vertical Position (mm)", 0, page_height_mm, 330)
+    
+    st.markdown("---")
+    line2_text = st.text_input("Line 2 Text", "SOLDIER FIELD | 08.28.2025")
+    line2_size = st.slider("Line 2 Font Size (pt)", 20, 100, 43)
+    line2_y_mm = st.slider("Line 2 Vertical Position (mm)", 0, page_height_mm, 387)
 
-    with st.expander("Line 2: Main Heading", expanded=True):
-        text2 = st.text_input("Text", "oasis", key="text2")
-        size2 = st.slider("Font Size (pt)", 10, 250, 162, key="size2")
-        y_mm2 = st.slider("Vertical Position (mm)", 0, page_height_mm, 300, key="y2")
-        text_lines_data.append({"text": text2, "size": size2, "y_mm": y_mm2})
-
-    with st.expander("Line 3: Sub-Heading", expanded=True):
-        text3 = st.text_input("Text", "chicago", key="text3")
-        size3 = st.slider("Font Size (pt)", 10, 250, 43, key="size3")
-        y_mm3 = st.slider("Vertical Position (mm)", 0, page_height_mm, 360, key="y3")
-        text_lines_data.append({"text": text3, "size": size3, "y_mm": y_mm3})
-        
-    with st.expander("Line 4: Venue & Date", expanded=True):
-        text4 = st.text_input("Text", "SOLDIER FIELD | 08.28.2025", key="text4")
-        size4 = st.slider("Font Size (pt)", 10, 250, 24, key="size4")
-        y_mm4 = st.slider("Vertical Position (mm)", 0, page_height_mm, 387, key="y4")
-        text_lines_data.append({"text": text4, "size": size4, "y_mm": y_mm4})
-
-
-# --- Live Preview ---
+# --- Live Preview & Generate Button (Unchanged) ---
 st.divider()
 st.subheader("Live Background Colour Preview")
 preview_width_px = 600
@@ -216,24 +197,23 @@ preview_height_px = int(preview_width_px * aspect_ratio)
 live_color_preview = Image.new('RGB', (preview_width_px, preview_height_px), bg_color)
 st.image(live_color_preview, caption=f"Real-time preview of your background on {paper_size} paper.")
 
-# --- Generate Button ---
 st.divider()
 if st.button("Generate Final Poster", key="generate", type="primary"):
     with st.spinner("Creating your masterpiece..."):
         try:
-            poster_rgba = create_poster(paper_size, bg_color, tracking, text_lines_data)
+            poster_rgba = create_poster(
+                paper_size, bg_color, line1_text, line1_size, line1_y_mm,
+                line2_text, line2_size, line2_y_mm, tracking
+            )
             
-            # For display and PNG, we can use the RGBA version
-            poster_for_display = poster_rgba.copy()
             st.subheader("Your Final Poster")
-            st.image(poster_for_display, caption=f"Final Poster ({paper_size})")
+            st.image(poster_rgba, caption=f"Final Poster ({paper_size})")
             
-            # Prepare PNG bytes (keeps transparency)
             img_bytes = io.BytesIO()
             poster_rgba.save(img_bytes, format='PNG')
             img_bytes.seek(0)
             
-            # Prepare PDF bytes (needs to be converted to RGB before saving)
+            # Convert to RGB *only* for the PDF
             poster_rgb_for_pdf = poster_rgba.convert("RGB")
             pdf_bytes = io.BytesIO()
             page_size = A3 if paper_size == "A3" else A4
