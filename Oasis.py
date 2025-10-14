@@ -240,7 +240,7 @@ with col2:
     # CHANGED: Default font size set to 162
     line1_size = st.slider("Line 1 Font Size (pt)", 50, 250, 162)
     # CHANGED: Default vertical position set to 325
-    line1_y_mm = st.slider("Line 1 Vertical Position (mm from top)", 0, page_height_mm, 325)
+    line1_y_mm = st.slider("Line 1 Vertical Position (mm from top)", 0, page_height_mm, 330)
     
     st.markdown("---")
 
