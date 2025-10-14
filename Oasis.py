@@ -4,201 +4,310 @@ from PIL import Image, ImageDraw, ImageFont
 import io
 import colorsys
 import numpy as np
+from pathlib import Path
 from reportlab.lib.pagesizes import A3, A4
 from reportlab.pdfgen import canvas
-from reportlab.lib.utils import ImageReader # ADDED: Important for PDF generation
+from reportlab.lib.units import mm
 
-# --- Page Config ---
+# Page config
 st.set_page_config(page_title="Poster Generator", layout="wide")
 
-# --- Caching Functions ---
-@st.cache_data
-def get_font_bytes():
-    """Downloads and caches the font file bytes."""
-    GITHUB_FONT_URL = "https://raw.githubusercontent.com/kevfromglasgow/oasisposter/main/oasis_font.otf"
-    try:
-        response = requests.get(GITHUB_FONT_URL)
-        response.raise_for_status()
-        return io.BytesIO(response.content)
-    except Exception as e:
-        st.error(f"Failed to load font: {e}")
-        return None
+# Constants
+A3_WIDTH_MM = 297
+A3_HEIGHT_MM = 420
+A4_WIDTH_MM = 210
+A4_HEIGHT_MM = 297
+DPI = 300  # pixels per inch
+MM_TO_INCH = 1 / 25.4
+BORDER_MM = 10
+FONT_SCALE_MULTIPLIER = 4.0  # Adjust this to match Photoshop font sizes
 
-@st.cache_data
-def load_image_from_github_cached(url):
-    """Downloads and caches an image from a URL."""
+# GitHub raw content URLs
+GITHUB_IMAGE_URL = "https://raw.githubusercontent.com/kevfromglasgow/oasisposter/main/oasis_image.png"
+GITHUB_LOGO_URL = "https://raw.githubusercontent.com/kevfromglasgow/oasisposter/main/oasis_logo.png"
+GITHUB_TEXTURE_URL = "https://raw.githubusercontent.com/kevfromglasgow/oasisposter/main/oasis_texture.png"
+GITHUB_FONT_URL = "https://raw.githubusercontent.com/kevfromglasgow/oasisposter/main/oasis_font.otf"
+
+def mm_to_pixels(mm, dpi=DPI):
+    """Convert millimeters to pixels"""
+    return int(mm * MM_TO_INCH * dpi)
+
+def get_scale_factor(paper_size):
+    """Get scale factor from A3 to selected paper size"""
+    if paper_size == "A3":
+        return 1.0
+    else:  # A4
+        return A4_WIDTH_MM / A3_WIDTH_MM
+
+def cmyk_to_rgb(c, m, y, k):
+    """Convert CMYK to RGB"""
+    c = c / 100.0
+    m = m / 100.0
+    y = y / 100.0
+    k = k / 100.0
+    
+    r = 255 * (1 - c) * (1 - k)
+    g = 255 * (1 - m) * (1 - k)
+    b = 255 * (1 - y) * (1 - k)
+    
+    return int(r), int(g), int(b)
+
+def rgb_to_cmyk(r, g, b):
+    """Convert RGB to CMYK"""
+    if (r, g, b) == (0, 0, 0):
+        return 0, 0, 0, 100
+    
+    c = 1 - (r / 255.0)
+    m = 1 - (g / 255.0)
+    y = 1 - (b / 255.0)
+    
+    k = min(c, m, y)
+    c = int(((c - k) / (1 - k)) * 100)
+    m = int(((m - k) / (1 - k)) * 100)
+    y = int(((y - k) / (1 - k)) * 100)
+    k = int(k * 100)
+    
+    return c, m, y, k
+
+def load_image_from_github(url):
+    """Load an image from GitHub URL"""
     try:
         response = requests.get(url)
         response.raise_for_status()
-        # Use BytesIO to ensure the object is consistent for caching
-        return io.BytesIO(response.content)
+        return Image.open(io.BytesIO(response.content))
     except Exception as e:
         st.error(f"Failed to load image from {url}: {e}")
         return None
 
-# --- Constants & Helpers ---
-A3_WIDTH_MM, A3_HEIGHT_MM = 297, 420
-A4_WIDTH_MM, A4_HEIGHT_MM = 210, 297
-DPI = 300
-MM_TO_INCH = 1 / 25.4
-FONT_SCALE_MULTIPLIER = 4.0
-
-GITHUB_IMAGE_URL = "https://raw.githubusercontent.com/kevfromglasgow/oasisposter/main/oasis_image.png"
-GITHUB_LOGO_URL = "https://raw.githubusercontent.com/kevfromglasgow/oasisposter/main/oasis_logo.png"
-GITHUB_TEXTURE_URL = "https://raw.githubusercontent.com/kevfromglasgow/oasisposter/main/oasis_texture.png"
-
-def mm_to_pixels(mm, dpi=DPI):
-    return int(mm * MM_TO_INCH * dpi)
-
-def get_scale_factor(paper_size):
-    return 1.0 if paper_size == "A3" else A4_WIDTH_MM / A3_WIDTH_MM
-
-def cmyk_to_rgb(c, m, y, k):
-    c, m, y, k = c / 100.0, m / 100.0, y / 100.0, k / 100.0
-    r = 255 * (1 - c) * (1 - k); g = 255 * (1 - m) * (1 - k); b = 255 * (1 - y) * (1 - k)
-    return int(r), int(g), int(b)
-
-def apply_blend_darken(base, overlay):
+def apply_blend_darken(base, overlay, opacity, fill):
+    """Apply Darken blend mode with opacity and fill"""
     overlay_array = np.array(overlay.convert('RGBA')).astype(float)
     base_array = np.array(base.convert('RGBA')).astype(float)
+    
     darken = np.minimum(base_array[:, :, :3], overlay_array[:, :, :3])
-    fill_factor = 95 / 100.0
+    fill_factor = fill / 100.0
     result = base_array[:, :, :3] * (1 - fill_factor) + darken * fill_factor
-    alpha = overlay_array[:, :, 3]
+    alpha = (overlay_array[:, :, 3] * opacity / 100.0).astype(int)
     result = np.concatenate([result, alpha[:, :, np.newaxis]], axis=2)
-    return Image.fromarray(result.astype('uint8'), 'RGBA')
+    
+    result_img = Image.fromarray(result.astype('uint8'), 'RGBA')
+    return result_img
 
-def draw_text_with_tracking(draw, text, y_pos, font, tracking, poster_width):
+# ADDED: Helper function to draw text with tracking
+def draw_text_with_tracking(draw, text, y_pos, font, tracking, poster_width, fill_color=(255, 255, 255)):
+    """Draws horizontally centered text with character spacing (tracking)."""
     tracking_pixels = (font.size / 1000) * tracking
+    
     char_widths = [draw.textlength(char, font=font) for char in text]
     total_width = sum(char_widths) + tracking_pixels * (len(text) - 1)
+    
     current_x = (poster_width - total_width) / 2
+    
     for i, char in enumerate(text):
-        draw.text((current_x, y_pos), char, font=font, fill=(255, 255, 255))
+        draw.text((current_x, y_pos), char, font=font, fill=fill_color)
         current_x += char_widths[i] + tracking_pixels
 
-# --- Core Function ---
-# MOST IMPORTANT CHANGE: Cache the entire poster creation process
-@st.cache_data
-def create_poster(paper_size, bg_color, line1_text, line1_size, line1_y_mm, line2_text, line2_size, line2_y_mm, tracking):
-    """Generates the poster image. This function is cached for performance."""
+# CHANGED: Updated function signature to accept tracking
+def create_poster(paper_size, bg_color, line1_text, line1_size, line1_y_mm, line2_text, line2_size, line2_y_mm, tracking, font):
+    """Create the poster image"""
     scale = get_scale_factor(paper_size)
-    width_mm = A3_WIDTH_MM if paper_size == "A3" else A4_WIDTH_MM
-    height_mm = A3_HEIGHT_MM if paper_size == "A3" else A4_HEIGHT_MM
-    width_px, height_px = mm_to_pixels(width_mm), mm_to_pixels(height_mm)
-
+    
+    if paper_size == "A3":
+        width_mm, height_mm = A3_WIDTH_MM, A3_HEIGHT_MM
+    else:
+        width_mm, height_mm = A4_WIDTH_MM, A4_HEIGHT_MM
+    
+    width_px = mm_to_pixels(width_mm)
+    height_px = mm_to_pixels(height_mm)
+    
     poster = Image.new('RGB', (width_px, height_px), bg_color)
     
-    texture_bytes = load_image_from_github_cached(GITHUB_TEXTURE_URL)
-    if texture_bytes:
-        texture = Image.open(texture_bytes)
+    texture = load_image_from_github(GITHUB_TEXTURE_URL)
+    if texture:
         texture = texture.resize((width_px, height_px), Image.Resampling.LANCZOS)
-        poster = apply_blend_darken(poster, texture).convert('RGB')
+        poster = apply_blend_darken(poster, texture, opacity=100, fill=95)
+        poster = poster.convert('RGB')
     
-    main_image_bytes = load_image_from_github_cached(GITHUB_IMAGE_URL)
-    if main_image_bytes:
-        main_image = Image.open(main_image_bytes).convert('RGBA')
-        new_width_px = mm_to_pixels(297 * scale)
-        new_height_px = int(new_width_px * (main_image.height / main_image.width))
+    main_image = load_image_from_github(GITHUB_IMAGE_URL)
+    if main_image:
+        if main_image.mode != 'RGBA':
+            main_image = main_image.convert('RGBA')
+        
+        main_width_mm = 297
+        new_width_mm = main_width_mm * scale
+        new_width_px = mm_to_pixels(new_width_mm)
+        aspect_ratio = main_image.height / main_image.width
+        new_height_px = int(new_width_px * aspect_ratio)
         main_image = main_image.resize((new_width_px, new_height_px), Image.Resampling.LANCZOS)
-        poster.paste(main_image, ((width_px - new_width_px) // 2, height_px - new_height_px), main_image)
+        
+        x = (width_px - new_width_px) // 2
+        y = height_px - new_height_px
+        poster.paste(main_image, (x, y), main_image)
     
-    logo_bytes = load_image_from_github_cached(GITHUB_LOGO_URL)
-    if logo_bytes:
-        logo = Image.open(logo_bytes).convert('RGBA')
-        logo_width_px, logo_height_px = mm_to_pixels(217.76 * scale), mm_to_pixels(99.14 * scale)
+    logo = load_image_from_github(GITHUB_LOGO_URL)
+    if logo:
+        if logo.mode != 'RGBA':
+            logo = logo.convert('RGBA')
+        
+        logo_top_mm = 70.6 * scale
+        logo_top_px = mm_to_pixels(logo_top_mm)
+        logo_width_mm = 217.76 * scale
+        logo_height_mm = 99.14 * scale
+        logo_width_px = mm_to_pixels(logo_width_mm)
+        logo_height_px = mm_to_pixels(logo_height_mm)
         logo = logo.resize((logo_width_px, logo_height_px), Image.Resampling.LANCZOS)
-        logo_top_px = mm_to_pixels(70.6 * scale)
-        poster.paste(logo, ((width_px - logo_width_px) // 2, logo_top_px - (logo_height_px // 2)), logo)
+        
+        logo_x = (width_px - logo_width_px) // 2
+        logo_y = logo_top_px - (logo_height_px // 2)
+        poster.paste(logo, (logo_x, logo_y), logo)
     
     draw = ImageDraw.Draw(poster)
-    font_bytes = get_font_bytes()
-    if font_bytes:
-        font_bytes.seek(0)
-        font1 = ImageFont.truetype(font_bytes, int(line1_size * FONT_SCALE_MULTIPLIER))
-        font_bytes.seek(0)
-        font2 = ImageFont.truetype(font_bytes, int(line2_size * FONT_SCALE_MULTIPLIER))
-    else:
-        font1, font2 = ImageFont.load_default(), ImageFont.load_default()
-
-    draw_text_with_tracking(draw, line1_text, mm_to_pixels(line1_y_mm), font1, tracking, width_px)
-    draw_text_with_tracking(draw, line2_text, mm_to_pixels(line2_y_mm), font2, tracking, width_px)
     
-    draw.rectangle([(0, 0), (width_px, height_px)], outline=(0, 0, 0), width=mm_to_pixels(10))
+    try:
+        font_data = io.BytesIO(requests.get(GITHUB_FONT_URL).content)
+        font1 = ImageFont.truetype(font_data, int(line1_size * FONT_SCALE_MULTIPLIER))
+        font_data.seek(0) # Reset buffer for second font load
+        font2 = ImageFont.truetype(font_data, int(line2_size * FONT_SCALE_MULTIPLIER))
+    except:
+        font1 = ImageFont.load_default()
+        font2 = ImageFont.load_default()
+
+    line1_top_px = mm_to_pixels(line1_y_mm)
+    line2_top_px = mm_to_pixels(line2_y_mm)
+
+    draw_text_with_tracking(draw, line1_text, line1_top_px, font1, tracking, width_px)
+    draw_text_with_tracking(draw, line2_text, line2_top_px, font2, tracking, width_px)
+    
+    border_px = mm_to_pixels(BORDER_MM)
+    draw.rectangle([(0, 0), (width_px, height_px)], outline=(0, 0, 0), width=border_px)
+    
     return poster
 
-# --- Streamlit UI ---
-st.title("🎨 Real-Time Poster Generator")
-st.markdown("Adjust the settings in the sidebar to see the poster update instantly.")
+# Streamlit UI
+st.title("🎨 Poster Generator")
 
-# --- UI Controls in Sidebar ---
-with st.sidebar:
-    st.header("Settings")
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("Settings")
     
-    paper_size = st.radio("Paper Size", ["A3", "A4"], horizontal=True)
-    page_height_mm = A3_HEIGHT_MM if paper_size == "A3" else A4_HEIGHT_MM
+    paper_size = st.radio("Paper Size", ["A3", "A4"])
     
-    with st.expander("Background Color", expanded=True):
-        color_mode = st.radio("Color Input", ["Color Wheel", "RGB", "CMYK"])
-        if color_mode == "Color Wheel":
-            h = st.slider("Hue", 0.0, 1.0, 0.0); s = st.slider("Saturation", 0.0, 1.0, 1.0); v = st.slider("Value", 0.0, 1.0, 1.0)
-            bg_color = tuple(int(c * 255) for c in colorsys.hsv_to_rgb(h, s, v))
-        elif color_mode == "RGB":
-            r = st.slider("Red", 0, 255, 255); g = st.slider("Green", 0, 255, 255); b = st.slider("Blue", 0, 255, 255)
-            bg_color = (r, g, b)
-        else:
-            c = st.slider("Cyan", 0, 100, 0); m = st.slider("Magenta", 0, 100, 0); y = st.slider("Yellow", 0, 100, 0); k = st.slider("Black (K)", 0, 100, 0)
-            bg_color = cmyk_to_rgb(c, m, y, k)
-        st.image(Image.new('RGB', (100, 50), bg_color), caption='Selected Color')
+    st.subheader("Background Color")
+    color_mode = st.radio("Color Input Method", ["Color Wheel", "RGB", "CMYK"])
+    
+    if color_mode == "Color Wheel":
+        hue = st.slider("Hue", 0.0, 1.0, 0.0)
+        saturation = st.slider("Saturation", 0.0, 1.0, 1.0)
+        value = st.slider("Value", 0.0, 1.0, 1.0)
+        rgb = colorsys.hsv_to_rgb(hue, saturation, value)
+        bg_color = tuple(int(c * 255) for c in rgb)
+    elif color_mode == "RGB":
+        r = st.slider("Red", 0, 255, 255)
+        g = st.slider("Green", 0, 255, 255)
+        b = st.slider("Blue", 0, 255, 255)
+        bg_color = (r, g, b)
+    else:
+        c = st.slider("Cyan", 0, 100, 0)
+        m = st.slider("Magenta", 0, 100, 0)
+        y = st.slider("Yellow", 0, 100, 0)
+        k = st.slider("Black (K)", 0, 100, 0)
+        bg_color = cmyk_to_rgb(c, m, y, k)
+    
+    color_preview_swatch = Image.new('RGB', (100, 50), bg_color)
+    st.image(color_preview_swatch, caption="Selected Colour")
 
-    with st.expander("Text & Layout", expanded=True):
-        tracking = st.slider("Letter Spacing (Tracking)", -50, 200, 50)
-        st.markdown("---")
-        line1_text = st.text_input("Line 1 Text", "oasis")
-        line1_size = st.slider("Line 1 Font Size (pt)", 50, 250, 162)
-        line1_y_mm = st.slider("Line 1 Vertical Position (mm)", 0, page_height_mm, 325)
-        st.markdown("---")
-        line2_text = st.text_input("Line 2 Text", "chicago")
-        line2_size = st.slider("Line 2 Font Size (pt)", 20, 100, 43)
-        line2_y_mm = st.slider("Line 2 Vertical Position (mm)", 0, page_height_mm, 387)
+with col2:
+    st.subheader("Text Content")
+    
+    if paper_size == "A3":
+        page_height_mm = A3_HEIGHT_MM
+    else:
+        page_height_mm = A4_HEIGHT_MM
 
-# --- Main Page Display ---
-# This part now runs very fast thanks to the caching on create_poster
-poster_image = create_poster(
-    paper_size, bg_color, line1_text, line1_size, line1_y_mm,
-    line2_text, line2_size, line2_y_mm, tracking
-)
+    tracking = st.slider("Letter Spacing (Tracking)", -50, 200, 50, help="Adjusts the space between letters.")
+    st.markdown("---")
+    
+    line1_text = st.text_input("Line 1 Text", "oasis")
+    line1_size = st.slider("Line 1 Font Size (pt)", 50, 250, 162)
+    line1_y_mm = st.slider("Line 1 Vertical Position (mm from top)", 0, page_height_mm, 330)
+    
+    st.markdown("---")
+    line2_text = st.text_input("Line 2 Text", "chicago")
+    line2_size = st.slider("Line 2 Font Size (pt)", 20, 100, 43)
+    line2_y_mm = st.slider("Line 2 Vertical Position (mm from top)", 0, page_height_mm, 387)
 
-st.subheader("Live Preview")
-st.image(poster_image, caption=f"Live Preview ({paper_size})", use_container_width=True)
+# --- ADDED: Live Color Preview ---
+# This section creates a simple, fast preview of the background color
+# that updates every time you change a color slider.
+st.divider()
+st.subheader("Live Background Colour Preview")
 
-st.subheader("Download")
-# Prepare PNG bytes
-img_bytes = io.BytesIO()
-poster_image.save(img_bytes, format='PNG', dpi=(DPI, DPI))
-img_bytes.seek(0)
+# Calculate aspect ratio for the preview
+preview_width_px = 600
+if paper_size == "A3":
+    aspect_ratio = A3_HEIGHT_MM / A3_WIDTH_MM
+else:
+    aspect_ratio = A4_HEIGHT_MM / A4_WIDTH_MM
+preview_height_px = int(preview_width_px * aspect_ratio)
 
-# Prepare PDF bytes
-pdf_bytes = io.BytesIO()
-page_size = A3 if paper_size == "A3" else A4
-c = canvas.Canvas(pdf_bytes, pagesize=page_size)
+# Create and display the simple color preview image
+live_color_preview = Image.new('RGB', (preview_width_px, preview_height_px), bg_color)
+st.image(live_color_preview, caption=f"A real-time preview of your background colour on {paper_size} paper.")
 
-# FIXED: Save poster to a temp buffer and pass it to ImageReader
-with io.BytesIO() as temp_img_buffer:
-    poster_image.save(temp_img_buffer, format='PNG')
-    temp_img_buffer.seek(0)
-    # Use ImageReader to robustly handle the image data
-    img_for_pdf = ImageReader(temp_img_buffer)
-    c.drawImage(img_for_pdf, 0, 0, width=page_size[0], height=page_size[1])
 
-c.save()
-pdf_bytes.seek(0)
+# --- Generate Button and Final Output ---
+st.divider()
+if st.button("Generate Final Poster", key="generate", type="primary"):
+    with st.spinner("Creating your masterpiece..."):
+        try:
+            poster = create_poster(
+                paper_size, bg_color, line1_text, line1_size, line1_y_mm,
+                line2_text, line2_size, line2_y_mm, tracking, None
+            )
+            
+            st.subheader("Your Final Poster")
+            st.image(poster, caption=f"Final Poster ({paper_size})")
+            
+            # --- Download Buttons ---
+            img_bytes = io.BytesIO()
+            poster.save(img_bytes, format='PNG')
+            img_bytes.seek(0)
+            
+            pdf_bytes = io.BytesIO()
+            page_size = A3 if paper_size == "A3" else A4
+            c = canvas.Canvas(pdf_bytes, pagesize=page_size)
+            # This is the line that can cause errors, let's keep it safe
+            try:
+                from reportlab.lib.utils import ImageReader
+                temp_buffer = io.BytesIO()
+                poster.save(temp_buffer, format='PNG')
+                temp_buffer.seek(0)
+                c.drawImage(ImageReader(temp_buffer), 0, 0, width=page_size[0], height=page_size[1])
+            except:
+                 # Fallback for older versions or issues
+                c.drawInlineImage(poster, 0, 0, width=page_size[0], height=page_size[1])
 
-# Show download buttons
-dl_col1, dl_col2 = st.columns(2)
-dl_col1.download_button(
-    "Download Poster (PNG)", img_bytes, f"poster_{paper_size}.png", "image/png", use_container_width=True
-)
-dl_col2.download_button(
-    "Download Poster (PDF)", pdf_bytes, f"poster_{paper_size}.pdf", "application/pdf", use_container_width=True
-)
+            c.save()
+            pdf_bytes.seek(0)
+
+            dl_col1, dl_col2 = st.columns(2)
+            with dl_col1:
+                st.download_button(
+                    label="Download Poster (PNG)",
+                    data=img_bytes,
+                    file_name=f"poster_{paper_size}.png",
+                    mime="image/png",
+                    use_container_width=True
+                )
+            with dl_col2:
+                st.download_button(
+                    label="Download Poster (PDF)",
+                    data=pdf_bytes,
+                    file_name=f"poster_{paper_size}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+
+        except Exception as e:
+            st.error(f"Oh no, something went wrong during poster creation: {e}")
