@@ -4,6 +4,7 @@ from PIL import Image, ImageDraw, ImageFont
 import io
 import colorsys
 import numpy as np
+import math # Added for colour difference calculation
 from pathlib import Path
 from reportlab.lib.pagesizes import A3, A4
 from reportlab.pdfgen import canvas
@@ -12,6 +13,7 @@ from reportlab.lib.units import mm
 # Page config
 st.set_page_config(page_title="Poster Generator", layout="wide")
 
+# ... (All of your existing constants and functions like mm_to_pixels, get_scale_factor etc. remain exactly the same) ...
 # Constants
 A3_WIDTH_MM = 297
 A3_HEIGHT_MM = 420
@@ -57,17 +59,55 @@ def rgb_to_cmyk(r, g, b):
     if (r, g, b) == (0, 0, 0):
         return 0, 0, 0, 100
     
+    # an empty case might lead to a division by zero error
+    if r == 255 and g == 255 and b == 255:
+        return 0, 0, 0, 0
+
     c = 1 - (r / 255.0)
     m = 1 - (g / 255.0)
     y = 1 - (b / 255.0)
     
     k = min(c, m, y)
+    
+    # Check for division by zero
+    if (1 - k) == 0:
+        return 0, 0, 0, 100
+
     c = int(((c - k) / (1 - k)) * 100)
     m = int(((m - k) / (1 - k)) * 100)
     y = int(((y - k) / (1 - k)) * 100)
     k = int(k * 100)
     
     return c, m, y, k
+
+# --- ADDED: The Gamut Warning Function ---
+def check_gamut_warning(original_rgb):
+    """
+    Checks if an RGB color is "out of gamut" for CMYK printing by doing a
+    round-trip conversion and checking the color difference.
+    """
+    if not all(isinstance(c, int) for c in original_rgb):
+        return False, None
+
+    # 1. Convert original RGB to CMYK
+    c, m, y, k = rgb_to_cmyk(*original_rgb)
+
+    # 2. Convert that CMYK back to RGB
+    round_trip_rgb = cmyk_to_rgb(c, m, y, k)
+
+    # 3. Calculate the difference between the original and round-trip colors
+    # A simple "Euclidean distance" in the color space
+    r1, g1, b1 = original_rgb
+    r2, g2, b2 = round_trip_rgb
+    color_difference = math.sqrt((r1 - r2)**2 + (g1 - g2)**2 + (b1 - b2)**2)
+
+    # 4. If the difference is significant, issue a warning.
+    # The threshold of 30 is a good starting point, can be adjusted.
+    if color_difference > 30:
+        return True, round_trip_rgb
+    else:
+        return False, None
+# --- END of new function ---
 
 def load_image_from_github(url):
     """Load an image from GitHub URL"""
@@ -93,23 +133,18 @@ def apply_blend_darken(base, overlay, opacity, fill):
     result_img = Image.fromarray(result.astype('uint8'), 'RGBA')
     return result_img
 
-# ADDED: Helper function to draw text with tracking
 def draw_text_with_tracking(draw, text, y_pos, font, tracking, poster_width, fill_color=(255, 255, 255)):
     """Draws horizontally centered text with character spacing (tracking)."""
     tracking_pixels = (font.size / 1000) * tracking
-    
     char_widths = [draw.textlength(char, font=font) for char in text]
     total_width = sum(char_widths) + tracking_pixels * (len(text) - 1)
-    
     current_x = (poster_width - total_width) / 2
-    
     for i, char in enumerate(text):
         draw.text((current_x, y_pos), char, font=font, fill=fill_color)
         current_x += char_widths[i] + tracking_pixels
 
-# CHANGED: Updated function signature to accept tracking
 def create_poster(paper_size, bg_color, line1_text, line1_size, line1_y_mm, line2_text, line2_size, line2_y_mm, tracking, font):
-    """Create the poster image"""
+    # This function remains the same
     scale = get_scale_factor(paper_size)
     
     if paper_size == "A3":
@@ -166,7 +201,7 @@ def create_poster(paper_size, bg_color, line1_text, line1_size, line1_y_mm, line
     try:
         font_data = io.BytesIO(requests.get(GITHUB_FONT_URL).content)
         font1 = ImageFont.truetype(font_data, int(line1_size * FONT_SCALE_MULTIPLIER))
-        font_data.seek(0) # Reset buffer for second font load
+        font_data.seek(0)
         font2 = ImageFont.truetype(font_data, int(line2_size * FONT_SCALE_MULTIPLIER))
     except:
         font1 = ImageFont.load_default()
@@ -196,6 +231,9 @@ with col1:
     st.subheader("Background Color")
     color_mode = st.radio("Color Input Method", ["Color Wheel", "RGB", "CMYK"])
     
+    # Initialise bg_color
+    bg_color = (255, 255, 255)
+
     if color_mode == "Color Wheel":
         hue = st.slider("Hue", 0.0, 1.0, 0.0)
         saturation = st.slider("Saturation", 0.0, 1.0, 1.0)
@@ -207,17 +245,33 @@ with col1:
         g = st.slider("Green", 0, 255, 255)
         b = st.slider("Blue", 0, 255, 255)
         bg_color = (r, g, b)
-    else:
+    else: # CMYK
         c = st.slider("Cyan", 0, 100, 0)
         m = st.slider("Magenta", 0, 100, 0)
         y = st.slider("Yellow", 0, 100, 0)
         k = st.slider("Black (K)", 0, 100, 0)
         bg_color = cmyk_to_rgb(c, m, y, k)
     
-    color_preview_swatch = Image.new('RGB', (100, 50), bg_color)
-    st.image(color_preview_swatch, caption="Selected Colour")
+    # --- UI CHANGE: Gamut Warning Display ---
+    is_out_of_gamut, closest_cmyk_in_rgb = check_gamut_warning(bg_color)
+
+    # Create two columns for the color swatches
+    swatch_col1, swatch_col2 = st.columns(2)
+    with swatch_col1:
+        color_preview_swatch = Image.new('RGB', (100, 50), bg_color)
+        st.image(color_preview_swatch, caption="Screen Colour (RGB)")
+
+    if is_out_of_gamut:
+        with swatch_col2:
+            # Show the closest printable color next to the chosen one
+            cmyk_preview_swatch = Image.new('RGB', (100, 50), closest_cmyk_in_rgb)
+            st.image(cmyk_preview_swatch, caption="Closest Print Colour")
+        st.warning("This colour is very vibrant and may appear different when printed. The swatch on the right is a closer representation of the printed colour.", icon="🎨")
+    # --- END of UI Change ---
+
 
 with col2:
+    # ... (The text content part of your UI remains exactly the same) ...
     st.subheader("Text Content")
     
     if paper_size == "A3":
@@ -225,7 +279,8 @@ with col2:
     else:
         page_height_mm = A4_HEIGHT_MM
 
-    tracking = st.slider("Letter Spacing (Tracking)", -50, 200, 50, help="Adjusts the space between letters.")
+    tracking = st.slider("Letter Spacing (Tracking)", -50, 200, 50, help="Adjusts the space between letters. Standard design value (+50).")
+
     st.markdown("---")
     
     line1_text = st.text_input("Line 1 Text", "oasis")
@@ -233,17 +288,15 @@ with col2:
     line1_y_mm = st.slider("Line 1 Vertical Position (mm from top)", 0, page_height_mm, 330)
     
     st.markdown("---")
+
     line2_text = st.text_input("Line 2 Text", "chicago")
     line2_size = st.slider("Line 2 Font Size (pt)", 20, 100, 43)
     line2_y_mm = st.slider("Line 2 Vertical Position (mm from top)", 0, page_height_mm, 387)
 
-# --- ADDED: Live Color Preview ---
-# This section creates a simple, fast preview of the background color
-# that updates every time you change a color slider.
+# ... (The rest of your code, including the live preview and generate button, remains exactly the same) ...
 st.divider()
 st.subheader("Live Background Colour Preview")
 
-# Calculate aspect ratio for the preview
 preview_width_px = 600
 if paper_size == "A3":
     aspect_ratio = A3_HEIGHT_MM / A3_WIDTH_MM
@@ -251,12 +304,10 @@ else:
     aspect_ratio = A4_HEIGHT_MM / A4_WIDTH_MM
 preview_height_px = int(preview_width_px * aspect_ratio)
 
-# Create and display the simple color preview image
 live_color_preview = Image.new('RGB', (preview_width_px, preview_height_px), bg_color)
 st.image(live_color_preview, caption=f"A real-time preview of your background colour on {paper_size} paper.")
 
 
-# --- Generate Button and Final Output ---
 st.divider()
 if st.button("Generate Final Poster", key="generate", type="primary"):
     with st.spinner("Creating your masterpiece..."):
@@ -269,7 +320,6 @@ if st.button("Generate Final Poster", key="generate", type="primary"):
             st.subheader("Your Final Poster")
             st.image(poster, caption=f"Final Poster ({paper_size})")
             
-            # --- Download Buttons ---
             img_bytes = io.BytesIO()
             poster.save(img_bytes, format='PNG')
             img_bytes.seek(0)
@@ -277,16 +327,12 @@ if st.button("Generate Final Poster", key="generate", type="primary"):
             pdf_bytes = io.BytesIO()
             page_size = A3 if paper_size == "A3" else A4
             c = canvas.Canvas(pdf_bytes, pagesize=page_size)
-            # This is the line that can cause errors, let's keep it safe
-            try:
-                from reportlab.lib.utils import ImageReader
-                temp_buffer = io.BytesIO()
-                poster.save(temp_buffer, format='PNG')
-                temp_buffer.seek(0)
-                c.drawImage(ImageReader(temp_buffer), 0, 0, width=page_size[0], height=page_size[1])
-            except:
-                 # Fallback for older versions or issues
-                c.drawInlineImage(poster, 0, 0, width=page_size[0], height=page_size[1])
+
+            from reportlab.lib.utils import ImageReader
+            temp_buffer = io.BytesIO()
+            poster.save(temp_buffer, format='PNG')
+            temp_buffer.seek(0)
+            c.drawImage(ImageReader(temp_buffer), 0, 0, width=page_size[0], height=page_size[1])
 
             c.save()
             pdf_bytes.seek(0)
