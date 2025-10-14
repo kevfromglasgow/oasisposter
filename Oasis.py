@@ -14,7 +14,7 @@ A3_WIDTH_MM = 297
 A3_HEIGHT_MM = 420
 A4_WIDTH_MM = 210
 A4_HEIGHT_MM = 297
-DPI = 300  # pixels per inch
+DPI = 72  # pixels per inch
 MM_TO_INCH = 1 / 25.4
 BORDER_MM = 10
 
