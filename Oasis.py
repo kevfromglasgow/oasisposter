@@ -141,7 +141,7 @@ def create_poster(paper_size, bg_color, line1_text, line1_size, line1_y_mm, line
     return poster
 
 # --- Streamlit UI ---
-st.title("🎨 Poster Generator")
+st.title("🎨 Oasis Poster Generator")
 col1, col2 = st.columns(2)
 
 with col1:
