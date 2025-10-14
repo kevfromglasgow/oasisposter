@@ -177,19 +177,27 @@ def create_poster(paper_size, bg_color, line1_text, line1_size, line2_text, line
     line1_top_mm = 367 * scale
     line1_top_px = mm_to_pixels(line1_top_mm)
     
-    # Line 2 is 72pt below Line 1
-    line2_offset_px = int((72 * MM_TO_INCH * DPI))
-    line2_top_px = line1_top_px + line2_offset_px
+    # Line 2 bottom should be 403.4mm from bottom of paper at A3
+    if paper_size == "A3":
+        line2_bottom_mm = A3_HEIGHT_MM - 403.4
+    else:
+        line2_bottom_mm = A4_HEIGHT_MM - (403.4 * scale)
+    
+    line2_bottom_px = mm_to_pixels(line2_bottom_mm)
     
     # Draw text centered in WHITE for visibility on blue background
     bbox1 = draw.textbbox((0, 0), line1_text, font=font1)
     line1_width = bbox1[2] - bbox1[0]
+    line1_height = bbox1[3] - bbox1[1]
     line1_x = (width_px - line1_width) // 2
     draw.text((line1_x, line1_top_px), line1_text, fill=(255, 255, 255), font=font1)
     
     bbox2 = draw.textbbox((0, 0), line2_text, font=font2)
     line2_width = bbox2[2] - bbox2[0]
+    line2_height = bbox2[3] - bbox2[1]
     line2_x = (width_px - line2_width) // 2
+    # Position line 2 so its bottom is at line2_bottom_px
+    line2_top_px = line2_bottom_px - line2_height
     draw.text((line2_x, line2_top_px), line2_text, fill=(255, 255, 255), font=font2)
     
     # Add 10mm black border - from edge to edge
