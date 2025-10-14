@@ -234,7 +234,7 @@ if st.button("Generate Final Poster", key="generate", type="primary"):
 
             dl_col1, dl_col2 = st.columns(2)
             dl_col1.download_button("Download Poster (PNG)", img_bytes, f"poster_{paper_size}.png", "image/png", use_container_width=True)
-            dl_col2.download_button("Download Poster (PDF)", pdf_bytes, f"poster_{paper_s}.pdf", "application/pdf", use_container_width=True)
+            dl_col2.download_button("Download Poster (PDF)", pdf_bytes, f"poster_{paper_size}.pdf", "application/pdf", use_container_width=True)
 
         except Exception as e:
             st.error(f"Oh no, something went wrong: {e}")
