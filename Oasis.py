@@ -147,11 +147,11 @@ def create_poster(paper_size, bg_color, line1_text, line1_size, line2_text, line
         logo_top_mm = 70.6 * scale
         logo_top_px = mm_to_pixels(logo_top_mm)
         
-        # Scale logo - increased from 50mm to 120mm for better visibility
-        logo_width_mm = 120 * scale
+        # Logo dimensions at A3: 217.76W x 99.14H
+        logo_width_mm = 217.76 * scale
+        logo_height_mm = 99.14 * scale
         logo_width_px = mm_to_pixels(logo_width_mm)
-        logo_aspect = logo.height / logo.width
-        logo_height_px = int(logo_width_px * logo_aspect)
+        logo_height_px = mm_to_pixels(logo_height_mm)
         
         logo = logo.resize((logo_width_px, logo_height_px), Image.Resampling.LANCZOS)
         
@@ -186,10 +186,13 @@ def create_poster(paper_size, bg_color, line1_text, line1_size, line2_text, line
     line2_x = (width_px - line2_width) // 2
     draw.text((line2_x, line2_top_px), line2_text, fill=(255, 255, 255), font=font2)
     
-    # Add 10mm black border on top layer
-    border_px = mm_to_pixels(BORDER_MM)
+    # Add 10mm black border - from edge to edge
+    border_mm = 10
+    border_px = mm_to_pixels(border_mm)
+    
+    # Draw rectangle from outer edge (0,0) to inner edge (border_px, border_px) on each side
     draw.rectangle(
-        [(border_px // 2, border_px // 2), (width_px - border_px // 2, height_px - border_px // 2)],
+        [(0, 0), (width_px, height_px)],
         outline=(0, 0, 0),
         width=border_px
     )
