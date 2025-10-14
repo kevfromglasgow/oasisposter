@@ -119,6 +119,10 @@ def create_poster(paper_size, bg_color, line1_text, line1_size, line2_text, line
     # Load main image
     main_image = load_image_from_github(GITHUB_IMAGE_URL)
     if main_image:
+        # Convert to RGBA if not already to preserve transparency
+        if main_image.mode != 'RGBA':
+            main_image = main_image.convert('RGBA')
+        
         # Scale the image based on paper size
         main_width_mm = 297  # Assume original is A3 width
         new_width_mm = main_width_mm * scale
@@ -131,16 +135,20 @@ def create_poster(paper_size, bg_color, line1_text, line1_size, line2_text, line
         # Position at bottom center
         x = (width_px - new_width_px) // 2
         y = height_px - new_height_px
-        poster.paste(main_image, (x, y))
+        poster.paste(main_image, (x, y), main_image)
     
     # Load and position logo
     logo = load_image_from_github(GITHUB_LOGO_URL)
     if logo:
+        # Convert to RGBA for transparency
+        if logo.mode != 'RGBA':
+            logo = logo.convert('RGBA')
+        
         logo_top_mm = 70.6 * scale
         logo_top_px = mm_to_pixels(logo_top_mm)
         
-        # Scale logo (assume 50mm original width, adjust as needed)
-        logo_width_mm = 50 * scale
+        # Scale logo - increased from 50mm to 120mm for better visibility
+        logo_width_mm = 120 * scale
         logo_width_px = mm_to_pixels(logo_width_mm)
         logo_aspect = logo.height / logo.width
         logo_height_px = int(logo_width_px * logo_aspect)
@@ -150,7 +158,7 @@ def create_poster(paper_size, bg_color, line1_text, line1_size, line2_text, line
         # Center horizontally, position from top
         logo_x = (width_px - logo_width_px) // 2
         logo_y = logo_top_px - (logo_height_px // 2)
-        poster.paste(logo, (logo_x, logo_y), logo.convert('RGBA') if logo.mode == 'RGBA' else None)
+        poster.paste(logo, (logo_x, logo_y), logo)
     
     # Add text lines
     draw = ImageDraw.Draw(poster)
@@ -167,21 +175,21 @@ def create_poster(paper_size, bg_color, line1_text, line1_size, line2_text, line
     line2_top_mm = 399 * scale
     line2_top_px = mm_to_pixels(line2_top_mm)
     
-    # Draw text centered
+    # Draw text centered in WHITE for visibility on blue background
     bbox1 = draw.textbbox((0, 0), line1_text, font=font1)
     line1_width = bbox1[2] - bbox1[0]
     line1_x = (width_px - line1_width) // 2
-    draw.text((line1_x, line1_top_px), line1_text, fill=(0, 0, 0), font=font1)
+    draw.text((line1_x, line1_top_px), line1_text, fill=(255, 255, 255), font=font1)
     
     bbox2 = draw.textbbox((0, 0), line2_text, font=font2)
     line2_width = bbox2[2] - bbox2[0]
     line2_x = (width_px - line2_width) // 2
-    draw.text((line2_x, line2_top_px), line2_text, fill=(0, 0, 0), font=font2)
+    draw.text((line2_x, line2_top_px), line2_text, fill=(255, 255, 255), font=font2)
     
-    # Add 10mm black border
+    # Add 10mm black border on top layer
     border_px = mm_to_pixels(BORDER_MM)
     draw.rectangle(
-        [(border_px, border_px), (width_px - border_px, height_px - border_px)],
+        [(border_px // 2, border_px // 2), (width_px - border_px // 2, height_px - border_px // 2)],
         outline=(0, 0, 0),
         width=border_px
     )
