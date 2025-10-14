@@ -5,6 +5,9 @@ import io
 import colorsys
 import numpy as np
 from pathlib import Path
+from reportlab.lib.pagesizes import A3, A4
+from reportlab.pdfgen import canvas
+from reportlab.lib.units import mm
 
 # Page config
 st.set_page_config(page_title="Poster Generator", layout="wide")
@@ -14,9 +17,10 @@ A3_WIDTH_MM = 297
 A3_HEIGHT_MM = 420
 A4_WIDTH_MM = 210
 A4_HEIGHT_MM = 297
-DPI = 72  # pixels per inch
+DPI = 300  # pixels per inch
 MM_TO_INCH = 1 / 25.4
 BORDER_MM = 10
+FONT_SCALE_MULTIPLIER = 4.0  # Adjust this to match Photoshop font sizes
 
 # GitHub raw content URLs
 GITHUB_IMAGE_URL = "https://raw.githubusercontent.com/kevfromglasgow/oasisposter/main/oasis_image.png"
@@ -164,8 +168,8 @@ def create_poster(paper_size, bg_color, line1_text, line1_size, line2_text, line
     draw = ImageDraw.Draw(poster)
     
     try:
-        font1 = ImageFont.truetype(io.BytesIO(requests.get(GITHUB_FONT_URL).content), line1_size)
-        font2 = ImageFont.truetype(io.BytesIO(requests.get(GITHUB_FONT_URL).content), line2_size)
+        font1 = ImageFont.truetype(io.BytesIO(requests.get(GITHUB_FONT_URL).content), int(line1_size * FONT_SCALE_MULTIPLIER))
+        font2 = ImageFont.truetype(io.BytesIO(requests.get(GITHUB_FONT_URL).content), int(line2_size * FONT_SCALE_MULTIPLIER))
     except:
         font1 = ImageFont.load_default()
         font2 = ImageFont.load_default()
@@ -269,7 +273,7 @@ if st.button("Generate Poster", key="generate"):
             # Display poster
             st.image(poster, caption=f"Preview ({paper_size})")
             
-            # Download button
+            # Download button for PNG
             img_bytes = io.BytesIO()
             poster.save(img_bytes, format='PNG')
             img_bytes.seek(0)
@@ -279,6 +283,25 @@ if st.button("Generate Poster", key="generate"):
                 data=img_bytes,
                 file_name=f"poster_{paper_size}.png",
                 mime="image/png"
+            )
+            
+            # Download button for PDF
+            pdf_bytes = io.BytesIO()
+            if paper_size == "A3":
+                page_size = A3
+            else:
+                page_size = A4
+            
+            c = canvas.Canvas(pdf_bytes, pagesize=page_size)
+            c.drawImage(poster, 0, 0, width=page_size[0], height=page_size[1])
+            c.save()
+            pdf_bytes.seek(0)
+            
+            st.download_button(
+                label="Download Poster (PDF)",
+                data=pdf_bytes,
+                file_name=f"poster_{paper_size}.pdf",
+                mime="application/pdf"
             )
         except Exception as e:
             st.error(f"Error generating poster: {e}")
