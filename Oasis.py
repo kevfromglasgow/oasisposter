@@ -84,22 +84,36 @@ def apply_blend_darken(base, overlay, opacity, fill):
     overlay_array = np.array(overlay.convert('RGBA')).astype(float)
     base_array = np.array(base.convert('RGBA')).astype(float)
     
-    # Darken blend mode: min(base, overlay)
     darken = np.minimum(base_array[:, :, :3], overlay_array[:, :, :3])
-    
-    # Apply fill (scale the effect)
     fill_factor = fill / 100.0
     result = base_array[:, :, :3] * (1 - fill_factor) + darken * fill_factor
-    
-    # Apply opacity
     alpha = (overlay_array[:, :, 3] * opacity / 100.0).astype(int)
     result = np.concatenate([result, alpha[:, :, np.newaxis]], axis=2)
     
     result_img = Image.fromarray(result.astype('uint8'), 'RGBA')
     return result_img
 
-# CHANGED: Updated function signature to accept text positions
-def create_poster(paper_size, bg_color, line1_text, line1_size, line1_y_mm, line2_text, line2_size, line2_y_mm, font):
+# ADDED: Helper function to draw text with tracking
+def draw_text_with_tracking(draw, text, y_pos, font, tracking, poster_width, fill_color=(255, 255, 255)):
+    """Draws horizontally centered text with character spacing (tracking)."""
+    # Convert tracking value (e.g., 50) to a pixel amount based on font size
+    # This is a common interpretation: tracking of 50 = 50/1000 of the font size
+    tracking_pixels = (font.size / 1000) * tracking
+    
+    # Calculate the total width of the text with tracking
+    char_widths = [draw.textlength(char, font=font) for char in text]
+    total_width = sum(char_widths) + tracking_pixels * (len(text) - 1)
+    
+    # Calculate the starting x-position to center the text
+    current_x = (poster_width - total_width) / 2
+    
+    # Draw each character one by one
+    for i, char in enumerate(text):
+        draw.text((current_x, y_pos), char, font=font, fill=fill_color)
+        current_x += char_widths[i] + tracking_pixels
+
+# CHANGED: Updated function signature to accept tracking
+def create_poster(paper_size, bg_color, line1_text, line1_size, line1_y_mm, line2_text, line2_size, line2_y_mm, tracking, font):
     """Create the poster image"""
     scale = get_scale_factor(paper_size)
     
@@ -111,35 +125,30 @@ def create_poster(paper_size, bg_color, line1_text, line1_size, line1_y_mm, line
     width_px = mm_to_pixels(width_mm)
     height_px = mm_to_pixels(height_mm)
     
-    # Create base image with background color
     poster = Image.new('RGB', (width_px, height_px), bg_color)
     
-    # Load and apply texture
     texture = load_image_from_github(GITHUB_TEXTURE_URL)
     if texture:
         texture = texture.resize((width_px, height_px), Image.Resampling.LANCZOS)
         poster = apply_blend_darken(poster, texture, opacity=100, fill=95)
         poster = poster.convert('RGB')
     
-    # Load main image
     main_image = load_image_from_github(GITHUB_IMAGE_URL)
     if main_image:
         if main_image.mode != 'RGBA':
             main_image = main_image.convert('RGBA')
         
-        main_width_mm = 297  # Assume original is A3 width
+        main_width_mm = 297
         new_width_mm = main_width_mm * scale
         new_width_px = mm_to_pixels(new_width_mm)
         aspect_ratio = main_image.height / main_image.width
         new_height_px = int(new_width_px * aspect_ratio)
-        
         main_image = main_image.resize((new_width_px, new_height_px), Image.Resampling.LANCZOS)
         
         x = (width_px - new_width_px) // 2
         y = height_px - new_height_px
         poster.paste(main_image, (x, y), main_image)
     
-    # Load and position logo
     logo = load_image_from_github(GITHUB_LOGO_URL)
     if logo:
         if logo.mode != 'RGBA':
@@ -147,52 +156,36 @@ def create_poster(paper_size, bg_color, line1_text, line1_size, line1_y_mm, line
         
         logo_top_mm = 70.6 * scale
         logo_top_px = mm_to_pixels(logo_top_mm)
-        
         logo_width_mm = 217.76 * scale
         logo_height_mm = 99.14 * scale
         logo_width_px = mm_to_pixels(logo_width_mm)
         logo_height_px = mm_to_pixels(logo_height_mm)
-        
         logo = logo.resize((logo_width_px, logo_height_px), Image.Resampling.LANCZOS)
         
         logo_x = (width_px - logo_width_px) // 2
         logo_y = logo_top_px - (logo_height_px // 2)
         poster.paste(logo, (logo_x, logo_y), logo)
     
-    # Add text lines
     draw = ImageDraw.Draw(poster)
     
     try:
-        font1 = ImageFont.truetype(io.BytesIO(requests.get(GITHUB_FONT_URL).content), int(line1_size * FONT_SCALE_MULTIPLIER))
-        font2 = ImageFont.truetype(io.BytesIO(requests.get(GITHUB_FONT_URL).content), int(line2_size * FONT_SCALE_MULTIPLIER))
+        font_data = io.BytesIO(requests.get(GITHUB_FONT_URL).content)
+        font1 = ImageFont.truetype(font_data, int(line1_size * FONT_SCALE_MULTIPLIER))
+        font_data.seek(0) # Reset buffer for second font load
+        font2 = ImageFont.truetype(font_data, int(line2_size * FONT_SCALE_MULTIPLIER))
     except:
         font1 = ImageFont.load_default()
         font2 = ImageFont.load_default()
 
-    # CHANGED: Use user-provided y-positions instead of hard-coded values
     line1_top_px = mm_to_pixels(line1_y_mm)
     line2_top_px = mm_to_pixels(line2_y_mm)
 
-    # Draw text centered (horizontal centering logic is unchanged)
-    bbox1 = draw.textbbox((0, 0), line1_text, font=font1)
-    line1_width = bbox1[2] - bbox1[0]
-    line1_x = (width_px - line1_width) // 2
-    draw.text((line1_x, line1_top_px), line1_text, fill=(255, 255, 255), font=font1)
+    # CHANGED: Use the new helper function for drawing text
+    draw_text_with_tracking(draw, line1_text, line1_top_px, font1, tracking, width_px)
+    draw_text_with_tracking(draw, line2_text, line2_top_px, font2, tracking, width_px)
     
-    bbox2 = draw.textbbox((0, 0), line2_text, font=font2)
-    line2_width = bbox2[2] - bbox2[0]
-    line2_x = (width_px - line2_width) // 2
-    draw.text((line2_x, line2_top_px), line2_text, fill=(255, 255, 255), font=font2)
-    
-    # Add 10mm black border - from edge to edge
-    border_mm = 10
-    border_px = mm_to_pixels(border_mm)
-    
-    draw.rectangle(
-        [(0, 0), (width_px, height_px)],
-        outline=(0, 0, 0),
-        width=border_px
-    )
+    border_px = mm_to_pixels(BORDER_MM)
+    draw.rectangle([(0, 0), (width_px, height_px)], outline=(0, 0, 0), width=border_px)
     
     return poster
 
@@ -204,10 +197,8 @@ col1, col2 = st.columns(2)
 with col1:
     st.subheader("Settings")
     
-    # Paper size
     paper_size = st.radio("Paper Size", ["A3", "A4"])
     
-    # Color selection
     st.subheader("Background Color")
     color_mode = st.radio("Color Input Method", ["Color Wheel", "RGB", "CMYK"])
     
@@ -217,69 +208,68 @@ with col1:
         value = st.slider("Value", 0.0, 1.0, 1.0)
         rgb = colorsys.hsv_to_rgb(hue, saturation, value)
         bg_color = tuple(int(c * 255) for c in rgb)
-    
     elif color_mode == "RGB":
         r = st.slider("Red", 0, 255, 255)
         g = st.slider("Green", 0, 255, 255)
         b = st.slider("Blue", 0, 255, 255)
         bg_color = (r, g, b)
-    
-    else:  # CMYK
+    else:
         c = st.slider("Cyan", 0, 100, 0)
         m = st.slider("Magenta", 0, 100, 0)
         y = st.slider("Yellow", 0, 100, 0)
         k = st.slider("Black (K)", 0, 100, 0)
         bg_color = cmyk_to_rgb(c, m, y, k)
     
-    # Show color preview
-    col_preview = st.columns(1)[0]
     color_preview = Image.new('RGB', (100, 50), bg_color)
     st.image(color_preview, use_container_width=False)
 
 with col2:
     st.subheader("Text Content")
-
-    # ADDED: Determine max height for sliders based on paper size
+    
     if paper_size == "A3":
         page_height_mm = A3_HEIGHT_MM
     else:
         page_height_mm = A4_HEIGHT_MM
 
-    line1_text = st.text_input("Line 1 Text", "oasis")
-    line1_size = st.slider("Line 1 Font Size (pt)", 50, 250, 161)
-    # ADDED: Interactive slider for Line 1 vertical position
-    line1_y_mm = st.slider("Line 1 Vertical Position (mm from top)", 0, page_height_mm, 367)
+    # ADDED: Slider for letter spacing (tracking)
+    tracking = st.slider("Letter Spacing (Tracking)", -50, 200, 50, help="Adjusts the space between letters. Standard design value (+50).")
+
+    st.markdown("---")
     
-    st.markdown("---") # Visual separator
+    line1_text = st.text_input("Line 1 Text", "oasis")
+    # CHANGED: Default font size set to 162
+    line1_size = st.slider("Line 1 Font Size (pt)", 50, 250, 162)
+    # CHANGED: Default vertical position set to 325
+    line1_y_mm = st.slider("Line 1 Vertical Position (mm from top)", 0, page_height_mm, 325)
+    
+    st.markdown("---")
 
     line2_text = st.text_input("Line 2 Text", "chicago")
+    # No change needed, default was already 43
     line2_size = st.slider("Line 2 Font Size (pt)", 20, 100, 43)
-    # ADDED: Interactive slider for Line 2 vertical position
-    line2_y_mm = st.slider("Line 2 Vertical Position (mm from top)", 0, page_height_mm, 388)
-    
-    # REMOVED old st.info message
+    # CHANGED: Default vertical position set to 387
+    line2_y_mm = st.slider("Line 2 Vertical Position (mm from top)", 0, page_height_mm, 387)
 
 # Generate button
 if st.button("Generate Poster", key="generate"):
     with st.spinner("Creating your poster..."):
         try:
-            # CHANGED: Pass the new y-position values to the function
+            # CHANGED: Pass the new tracking value to the function
             poster = create_poster(
                 paper_size,
                 bg_color,
                 line1_text,
                 line1_size,
-                line1_y_mm, # ADDED
+                line1_y_mm,
                 line2_text,
                 line2_size,
-                line2_y_mm, # ADDED
+                line2_y_mm,
+                tracking, # ADDED
                 None
             )
             
-            # Display poster
             st.image(poster, caption=f"Preview ({paper_size})")
             
-            # Download button for PNG
             img_bytes = io.BytesIO()
             poster.save(img_bytes, format='PNG')
             img_bytes.seek(0)
@@ -291,7 +281,6 @@ if st.button("Generate Poster", key="generate"):
                 mime="image/png"
             )
             
-            # Download button for PDF
             pdf_bytes = io.BytesIO()
             if paper_size == "A3":
                 page_size = A3
