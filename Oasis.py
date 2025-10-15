@@ -29,7 +29,7 @@ GITHUB_LOGO_URL = "https://raw.githubusercontent.com/kevfromglasgow/oasisposter/
 GITHUB_TEXTURE_URL = "https://raw.githubusercontent.com/kevfromglasgow/oasisposter/main/oasis_texture.png"
 GITHUB_FONT_URL = "https://raw.githubusercontent.com/kevfromglasgow/oasisposter/main/oasis_font.otf"
 
-# --- Helper Functions (Unchanged) ---
+# --- Helper Functions ---
 def mm_to_pixels(mm, dpi=DPI):
     return int(mm * MM_TO_INCH * dpi)
 
@@ -78,7 +78,9 @@ def apply_blend_darken(base, overlay, opacity, fill):
     result_rgb = base_array[:, :, :3] * (1 - fill_factor) + darken * fill_factor
     result_a = base_array[:, :, 3:]
     result = np.concatenate([result_rgb, result_a], axis=2)
-    return Image.fromarray(result.astype('uint8'), 'RGBA')
+    # THIS IS THE FIXED LINE - The 'RGBA' mode is removed
+    result_img = Image.fromarray(result.astype('uint8'))
+    return result_img
 
 def draw_text_with_tracking(draw, text, y_pos, font, tracking, poster_width, fill_color=(255, 255, 255)):
     tracking_pixels = (font.size / 1000) * tracking
@@ -89,7 +91,7 @@ def draw_text_with_tracking(draw, text, y_pos, font, tracking, poster_width, fil
         draw.text((current_x, y_pos), char, font=font, fill=fill_color)
         current_x += char_widths[i] + tracking_pixels
 
-# --- Core Create Poster Function (Unchanged) ---
+# --- Core Create Poster Function ---
 def create_poster(paper_size, bg_color, line1_text, line1_size, line1_y_mm, line2_text, line2_size, line2_y_mm, tracking):
     scale = get_scale_factor(paper_size)
     
@@ -141,7 +143,7 @@ def create_poster(paper_size, bg_color, line1_text, line1_size, line1_y_mm, line
     return poster
 
 # --- Streamlit UI ---
-st.title("🎨 Oasis Poster Generator")
+st.title("🎨 Poster Generator")
 col1, col2 = st.columns(2)
 
 with col1:
@@ -174,28 +176,23 @@ with col2:
     tracking = st.slider("Letter Spacing (Tracking)", -50, 200, 50)
     st.markdown("---")
     
-    # --- CHANGED: Dynamic Default Positions ---
-    # 1. Define the master defaults for A3
     A3_DEFAULT_Y1_MM = 330
     A3_DEFAULT_Y2_MM = 387
     
-    # 2. Calculate the correct default based on the selected paper size
     scale = get_scale_factor(paper_size)
     default_y1 = int(A3_DEFAULT_Y1_MM * scale)
     default_y2 = int(A3_DEFAULT_Y2_MM * scale)
     
-    # 3. Use these dynamic defaults in the sliders
-    line1_text = st.text_input("Line 1 Text", "CITY")
+    line1_text = st.text_input("Line 1 Text", "oasis")
     line1_size = st.slider("Line 1 Font Size (pt)", 50, 250, 162)
     line1_y_mm = st.slider("Line 1 Vertical Position (mm)", 0, page_height_mm, default_y1)
     
     st.markdown("---")
-    line2_text = st.text_input("Line 2 Text", "VENUE")
+    line2_text = st.text_input("Line 2 Text", "chicago")
     line2_size = st.slider("Line 2 Font Size (pt)", 20, 100, 43)
     line2_y_mm = st.slider("Line 2 Vertical Position (mm)", 0, page_height_mm, default_y2)
-    # --- END OF CHANGE ---
 
-# --- Live Preview & Generate Button (Unchanged) ---
+# --- Live Preview & Generate Button ---
 st.divider()
 st.subheader("Live Background Colour Preview")
 preview_width_px = 600
